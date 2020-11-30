@@ -1,3 +1,7 @@
 /.metadata/
 /.idea/
 idl.iml
+es.us.isa.idl/model
+es.us.isa.idl/src/main/xtext-gen
+es.us.isa.idl/src/main/xtend-gen
+es.us.isa.idl/target
