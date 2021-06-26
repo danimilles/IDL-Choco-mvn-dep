@@ -34,6 +34,13 @@ import es.us.isa.idl.idl.RelationalDependency
 import es.us.isa.idl.idl.impl.GeneralTermImpl
 import es.us.isa.idl.idl.GeneralTerm
 import es.us.isa.idl.idl.GeneralPredicate
+import org.chocosolver.solver.Model
+import org.chocosolver.solver.constraints.Constraint
+import org.chocosolver.solver.variables.Variable
+import org.chocosolver.solver.variables.RealVar
+import org.chocosolver.solver.variables.IntVar
+import org.chocosolver.solver.variables.BoolVar
+import java.util.List
 
 /**
  * Generates code from your model files on save.
@@ -48,7 +55,7 @@ class IDLGenerator extends AbstractGenerator {
 	var String fullCsp
 	var Integer stringToIntCounter
 	var Map<String, Integer> stringIntMapping = new HashMap
-	
+	var model = new Model("problem");
 	var String folderPath = "./idl_aux_files"
 	
 	def String getFolderPath() {
@@ -61,6 +68,9 @@ class IDLGenerator extends AbstractGenerator {
 
 	override void doGenerate(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
 		
+	}
+	
+	def private String generateString(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
 		stringIntMapping.clear
 		stringToIntCounter = 0
 		
@@ -116,9 +126,18 @@ class IDLGenerator extends AbstractGenerator {
 		
         mappingOut.append(json)
         mappingOut.flush
-        mappingOut.close
+        return ""
 	}
 	
+	/**
+	 * Surround double with brackets if it's negative, and remove decimals (MiniZinc does not support floats)
+	 */
+	def private String parseDouble(String doubleValue) {
+		val doubleWithoutDec = doubleValue.replaceAll("\\.\\d+", "")
+		if (doubleWithoutDec.contains('-'))
+			return ('(' + doubleWithoutDec + ')')
+		return doubleWithoutDec
+	}
 	
 	/**
 	 * Remove and replace special characters from paramName
@@ -142,47 +161,34 @@ class IDLGenerator extends AbstractGenerator {
 	
 	
 	/**
-	 * Surround double with brackets if it's negative, and remove decimals (MiniZinc does not support floats)
-	 */
-	def private String parseDouble(String doubleValue) {
-		val doubleWithoutDec = doubleValue.replaceAll("\\.\\d+", "")
-		if (doubleWithoutDec.contains('-'))
-			return ('(' + doubleWithoutDec + ')')
-		return doubleWithoutDec
-	}
-	
-	/**
 	 * Returns true if param is actually a ParamValueRelation. False if it is a Param
 	 */
 	def private boolean isParamValueRelation(Param param) {
 		return param.stringValues.size !== 0 || param.patternString !== null || param.booleanValue !== null || param.doubleValue !== null
 	}
 	
-	def private void writePredicate(GeneralPredicate predicate) {
-		writeClause(predicate.firstClause)
+	def private Constraint writePredicate(GeneralPredicate predicate) {
+		var Constraint constraint = writeClause(predicate.firstClause)
 		
 		if (predicate.clauseContinuation !== null) {
 			// Solve second element, which is a clause continuation containing a predicate
 			if (predicate.clauseContinuation.logicalOp == "AND") {
-				csp += " /\\ "
+				return model.and(constraint, writePredicate(predicate.clauseContinuation.additionalElements))
 			} else if (predicate.clauseContinuation.logicalOp == "OR") {
-				csp += " \\/ "
+				return model.or(constraint, writePredicate(predicate.clauseContinuation.additionalElements))
 			} else {
 				throw new Exception("The logical operator can only be AND or OR")
 			}
-			writePredicate(predicate.clauseContinuation.additionalElements)
 		}
 	}
 	
-	def private void writeClause(GeneralClause clause) {
+	def private Constraint writeClause(GeneralClause clause) {
+		var Constraint constraint = null;
 		if (clause.predicate !== null) {
-			if (clause.not !== null)
-				csp += "(not "
-			csp += "("
-			writePredicate(clause.predicate)
-			csp += ")"
-			if (clause.not !== null)
-				csp += ")"
+			constraint = writePredicate(clause.predicate)
+			if (clause.not !== null){
+				constraint = model.not(constraint)		
+			}
 		}
 		
 		// Solve firstElement, which can be a term, arithmetic dep, relational dep or predefined dep
@@ -190,34 +196,40 @@ class IDLGenerator extends AbstractGenerator {
 			if (clause.firstElement.class == typeof(GeneralTermImpl)) { // param or param assignment
 				val GeneralTerm term = (clause.firstElement as GeneralTerm)
 				val Param param = (term.param as Param)
-				
-				if (term.not !== null)
-					csp += "(not "
-				csp += "("
-	
-				csp += parseIDLParamName(param.name) + "Set==1"
+
+				var name = parseIDLParamName(param.name)
+				var paramSetVar = model.boolVar(name + "Set").eq(1).boolVar
+				var BoolVar paramVar = null
 				
 				if (isParamValueRelation(param)) {
-					csp += " /\\ "
 					if (param.booleanValue !== null) {
-						csp += parseIDLParamName(param.name) + "==" + param.booleanValue
+						paramVar = model.boolVar(name).eq(Boolean.parseBoolean(param.booleanValue) ? 1 : 0).boolVar
 					} else if (param.doubleValue !== null) {
-						csp += parseIDLParamName(param.name) + param.relationalOp + parseDouble(param.doubleValue)
+						var IntVar intVar = model.intVar(name, Integer.MIN_VALUE, Integer.MAX_VALUE)
+						paramVar = model.arithm(intVar, param.relationalOp, Integer.parseInt(parseDouble(param.doubleValue))).reify.eq(1).boolVar
 					} else if (param.stringValues.size !== 0) {
-						csp += "("
+						var IntVar intVar = model.intVar(name, Integer.MIN_VALUE, Integer.MAX_VALUE)
+						var List<Constraint> constraints = newArrayList
+						
 						for (string: param.stringValues) {
-							csp += parseIDLParamName(param.name) + "==" + stringToInt(string) + " \\/ "
+							constraints.add(intVar.eq(stringToInt(string)).decompose)
 						}
-						csp = csp.substring(0, csp.length-4) // Trim last " \\/ "
-						csp += ")"
+						paramVar = model.or(constraints).reify.eq(1).boolVar
 					} else if (param.patternString !== null) {
 						// TODO: Implement CSP mapping (none for now)
-						csp += "true"
 					}
 				}
-				csp += ")"
-				if (term.not !== null)
-					csp += ")"
+				
+				var Constraint temp = constraint = model.and(paramSetVar, paramVar)
+				if (term.not !== null){
+					temp = model.not(temp)
+				}
+				
+				if(constraint != null) {
+					constraint = model.and(constraint, temp)
+				} else {
+					constraint = temp
+				}				
 			} else if(clause.firstElement.class == typeof(RelationalDependencyImpl)) {
 				writeRelationalDependency(clause.firstElement as RelationalDependency, false)
 			} else if(clause.firstElement.class == typeof(ArithmeticDependencyImpl)) {
@@ -229,23 +241,30 @@ class IDLGenerator extends AbstractGenerator {
 					"arithmetic dependency, a relational dependency or a predefined dependency")
 			}
 		}
+		return constraint
 	}
 	
 	def private void writeConditionalDependency(ConditionalDependency dep) {
-		csp += "("
-		writePredicate(dep.condition)
-		csp += ") -> ("
-		writePredicate(dep.consequence)
-		csp += ")"
+		var condition = writePredicate(dep.condition)
+		var consecuence = writePredicate(dep.consequence)
+		model.ifThen(condition, consecuence);
 	}
 
-	def private void writeRelationalDependency(RelationalDependency dep, boolean alone) {
-		if (alone)
-			csp += "((" + parseIDLParamName(dep.param1.name) + "Set==1 /\\ " + parseIDLParamName(dep.param2.name) + "Set==1) -> (" +
-					parseIDLParamName(dep.param1.name) + dep.relationalOp + parseIDLParamName(dep.param2.name) + "))"
-		else
-			csp += "(" + parseIDLParamName(dep.param1.name) + "Set==1 /\\ " + parseIDLParamName(dep.param2.name) + "Set==1 /\\ " +
-					parseIDLParamName(dep.param1.name) + dep.relationalOp + parseIDLParamName(dep.param2.name) + ")"
+	def private Constraint writeRelationalDependency(RelationalDependency dep, boolean alone) {
+		var nameParam1 = parseIDLParamName(dep.param1.name)
+		var nameParam2 = parseIDLParamName(dep.param2.name)
+		var param1SetVar = model.boolVar(nameParam1 + "Set").eq(1).boolVar
+		var param2SetVar = model.boolVar(nameParam2 + "Set").eq(1).boolVar
+		var ifParamsSet = model.and(param1SetVar, param2SetVar)
+		var IntVar intVar1 = model.intVar(nameParam1, Integer.MIN_VALUE, Integer.MAX_VALUE)
+		var IntVar intVar2 = model.intVar(nameParam2, Integer.MIN_VALUE, Integer.MAX_VALUE)
+		var relatonialOperation = model.arithm(intVar1, dep.relationalOp, intVar2)
+		if (alone){
+			model.ifThen(ifParamsSet, relatonialOperation)
+			return null
+		} else {
+			return model.and(ifParamsSet, relatonialOperation)
+		}
 	}
 	
 	def private void writeArithmeticDependency(ArithmeticDependency dep, boolean alone) {
