@@ -3,44 +3,36 @@
  */
 package es.us.isa.idl.generator
 
+import es.us.isa.idl.idl.ArithmeticDependency
+import es.us.isa.idl.idl.ConditionalDependency
+import es.us.isa.idl.idl.Dependency
+import es.us.isa.idl.idl.GeneralClause
+import es.us.isa.idl.idl.GeneralPredefinedDependency
+import es.us.isa.idl.idl.GeneralPredicate
+import es.us.isa.idl.idl.GeneralTerm
+import es.us.isa.idl.idl.Operation
+import es.us.isa.idl.idl.OperationContinuation
+import es.us.isa.idl.idl.Param
+import es.us.isa.idl.idl.RelationalDependency
+import es.us.isa.idl.idl.impl.ArithmeticDependencyImpl
+import es.us.isa.idl.idl.impl.ConditionalDependencyImpl
+import es.us.isa.idl.idl.impl.GeneralPredefinedDependencyImpl
+import es.us.isa.idl.idl.impl.GeneralTermImpl
+import es.us.isa.idl.idl.impl.ParamImpl
+import es.us.isa.idl.idl.impl.RelationalDependencyImpl
+import java.util.HashMap
+import java.util.List
+import java.util.Map
+import org.chocosolver.solver.Model
+import org.chocosolver.solver.constraints.Constraint
+import org.chocosolver.solver.variables.BoolVar
+import org.chocosolver.solver.variables.IntVar
 import org.eclipse.emf.ecore.resource.Resource
 import org.eclipse.xtext.generator.AbstractGenerator
 import org.eclipse.xtext.generator.IFileSystemAccess2
 import org.eclipse.xtext.generator.IGeneratorContext
 
-import java.io.File
-import java.util.Map
-import java.util.HashMap
-import java.io.BufferedWriter
-import java.io.FileWriter
-import com.fasterxml.jackson.databind.ObjectMapper
-
-import static es.us.isa.idl.generator.ReservedWords.RESERVED_WORDS;
-
-import es.us.isa.idl.idl.GeneralClause
-import es.us.isa.idl.idl.GeneralPredefinedDependency
-import es.us.isa.idl.idl.Dependency;
-import es.us.isa.idl.idl.ConditionalDependency;
-import es.us.isa.idl.idl.impl.ConditionalDependencyImpl
-import es.us.isa.idl.idl.impl.GeneralPredefinedDependencyImpl
-import es.us.isa.idl.idl.impl.ArithmeticDependencyImpl
-import es.us.isa.idl.idl.ArithmeticDependency
-import es.us.isa.idl.idl.Operation
-import es.us.isa.idl.idl.Param
-import es.us.isa.idl.idl.impl.ParamImpl
-import es.us.isa.idl.idl.OperationContinuation
-import es.us.isa.idl.idl.impl.RelationalDependencyImpl
-import es.us.isa.idl.idl.RelationalDependency
-import es.us.isa.idl.idl.impl.GeneralTermImpl
-import es.us.isa.idl.idl.GeneralTerm
-import es.us.isa.idl.idl.GeneralPredicate
-import org.chocosolver.solver.Model
-import org.chocosolver.solver.constraints.Constraint
-import org.chocosolver.solver.variables.Variable
-import org.chocosolver.solver.variables.RealVar
-import org.chocosolver.solver.variables.IntVar
-import org.chocosolver.solver.variables.BoolVar
-import java.util.List
+import static es.us.isa.idl.generator.ReservedWords.RESERVED_WORDS
 
 /**
  * Generates code from your model files on save.
@@ -49,15 +41,18 @@ import java.util.List
  */
 class IDLGenerator extends AbstractGenerator {
 
+	val MIN_INTEGER = -10000
+	val MAX_INTEGER = 10000
+
 	var Integer stringToIntCounter
 	var Map<String, Integer> stringIntMapping = new HashMap
-	var model = new Model("problem");
+	var Model model = new Model("problem");
 
 	override void doGenerate(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
-		
+		throw new Exception("Unsupported operation")
 	}
 	
-	def private Response generateString(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
+	def Response doGenerateChocoModel(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
 		stringIntMapping.clear
 		stringToIntCounter = 0
 		
@@ -90,8 +85,6 @@ class IDLGenerator extends AbstractGenerator {
 	 */
 	def private String parseDouble(String doubleValue) {
 		val doubleWithoutDec = doubleValue.replaceAll("\\.\\d+", "")
-		if (doubleWithoutDec.contains('-'))
-			return ('(' + doubleWithoutDec + ')')
 		return doubleWithoutDec
 	}
 	
@@ -128,13 +121,14 @@ class IDLGenerator extends AbstractGenerator {
 		if (predicate.clauseContinuation !== null) {
 			// Solve second element, which is a clause continuation containing a predicate
 			if (predicate.clauseContinuation.logicalOp == "AND") {
-				return model.and(constraint, writePredicate(predicate.clauseContinuation.additionalElements))
+				constraint = model.and(constraint, writePredicate(predicate.clauseContinuation.additionalElements))
 			} else if (predicate.clauseContinuation.logicalOp == "OR") {
-				return model.or(constraint, writePredicate(predicate.clauseContinuation.additionalElements))
+				constraint = model.or(constraint, writePredicate(predicate.clauseContinuation.additionalElements))
 			} else {
 				throw new Exception("The logical operator can only be AND or OR")
 			}
 		}
+		return constraint		
 	}
 	
 	def private Constraint writeClause(GeneralClause clause) {
@@ -162,10 +156,10 @@ class IDLGenerator extends AbstractGenerator {
 					if (param.booleanValue !== null) {
 						paramVar = model.boolVar(name).eq(Boolean.parseBoolean(param.booleanValue) ? 1 : 0).decompose
 					} else if (param.doubleValue !== null) {
-						var IntVar intVar = model.intVar(name, Integer.MIN_VALUE, Integer.MAX_VALUE)
+						var IntVar intVar = model.intVar(name, MIN_INTEGER, MAX_INTEGER)
 						paramVar = model.arithm(intVar, param.relationalOp, Integer.parseInt(parseDouble(param.doubleValue))).reify.eq(1).decompose
 					} else if (param.stringValues.size !== 0) {
-						var IntVar intVar = model.intVar(name, Integer.MIN_VALUE, Integer.MAX_VALUE)
+						var IntVar intVar = model.intVar(name, MIN_INTEGER, MAX_INTEGER)
 						var List<Constraint> constraints = newArrayList
 						
 						for (string: param.stringValues) {
@@ -220,8 +214,8 @@ class IDLGenerator extends AbstractGenerator {
 		var param1SetVar = model.boolVar(nameParam1 + "Set").eq(1).boolVar
 		var param2SetVar = model.boolVar(nameParam2 + "Set").eq(1).boolVar
 		var ifParamsSet = model.and(param1SetVar, param2SetVar)
-		var IntVar intVar1 = model.intVar(nameParam1, Integer.MIN_VALUE, Integer.MAX_VALUE)
-		var IntVar intVar2 = model.intVar(nameParam2, Integer.MIN_VALUE, Integer.MAX_VALUE)
+		var IntVar intVar1 = model.intVar(nameParam1, MIN_INTEGER, MAX_INTEGER)
+		var IntVar intVar2 = model.intVar(nameParam2, MIN_INTEGER, MAX_INTEGER)
 		var relationalOperation = model.arithm(intVar1, dep.relationalOp, intVar2)
 		if (alone){
 			model.ifThen(ifParamsSet, relationalOperation)
@@ -251,7 +245,7 @@ class IDLGenerator extends AbstractGenerator {
 	
 	def private IntVar writeOperation(Operation operation) {
 		if (operation.openingParenthesis === null) {
-			var IntVar intVar = model.intVar(operation.firstParam.name, Integer.MIN_VALUE, Integer.MAX_VALUE)
+			var IntVar intVar = model.intVar(parseIDLParamName(operation.firstParam.name), MIN_INTEGER, MAX_INTEGER)
 			return getArithmOperation(intVar, operation.operationContinuation.arithOp, writeOperationContinuation(operation.operationContinuation))
 		} else { // Alternative 2 of Operation
 			var intVar = writeOperation(operation.operation)
@@ -279,7 +273,7 @@ class IDLGenerator extends AbstractGenerator {
 	def private IntVar writeOperationContinuation(OperationContinuation opCont) {
 		var IntVar intVar = null
 		if (opCont.additionalParams.class == typeof(ParamImpl)) {
-			intVar = model.intVar((opCont.additionalParams as Param).name, Integer.MIN_VALUE, Integer.MAX_VALUE)
+			intVar = model.intVar(parseIDLParamName((opCont.additionalParams as Param).name), MIN_INTEGER, MAX_INTEGER)
 		} else {
 			intVar = writeOperation(opCont.additionalParams as Operation)
 		}
@@ -298,11 +292,11 @@ class IDLGenerator extends AbstractGenerator {
 			case "Or": {
 				cons = model.or(contraintsList)			
 			} case "OnlyOne": {
-				cons = model.sum(contraintsList, "+", 1)
+				cons = model.sum(contraintsList, "=", 1)
 			} case "AllOrNone": {
 				cons = model.allEqual(contraintsList)
 			} case "ZeroOrOne": {
-				cons = model.or(model.sum(contraintsList, "+", 1), model.sum(contraintsList, "+", 0))
+				cons = model.or(model.sum(contraintsList, "=", 1), model.sum(contraintsList, "=", 0))
 			} default:
 				throw new Exception("The predefined dependency can only be 'Or', " + 
 					"'OnlyOne', 'AllOrNone' or 'ZeroOrOne'")
