@@ -33,6 +33,8 @@ import org.eclipse.xtext.generator.IFileSystemAccess2
 import org.eclipse.xtext.generator.IGeneratorContext
 
 import static es.us.isa.idl.generator.ReservedWords.RESERVED_WORDS
+import java.util.ArrayList
+import org.chocosolver.solver.variables.Variable
 
 /**
  * Generates code from your model files on save.
@@ -47,6 +49,7 @@ class IDLGenerator extends AbstractGenerator {
 	var Integer stringToIntCounter
 	var Map<String, Integer> stringIntMapping = new HashMap
 	var Model model = new Model("problem");
+	var Map<String, Variable> map = new HashMap
 
 	override void doGenerate(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
 		throw new Exception("Unsupported operation")
@@ -108,6 +111,20 @@ class IDLGenerator extends AbstractGenerator {
 		}
 	}
 	
+	def private getVariable(String name, Class<? extends Variable> type, int... domain) {
+		var paramVar = map.get(name)
+		if (paramVar !== null) {
+			return paramVar
+		} else {
+			if(type == typeof(BoolVar)){
+				map.put(name, model.boolVar(name))
+			} else if (type == typeof(IntVar)){
+				map.put(name, model.intVar(name, domain.size == 2 ? domain.get(0) : MIN_INTEGER, domain.size==2 ? domain.get(1) : MAX_INTEGER))
+			}
+			return map.get(name)
+		}
+	}
+	
 	/**
 	 * Returns true if param is actually a ParamValueRelation. False if it is a Param
 	 */
@@ -149,23 +166,25 @@ class IDLGenerator extends AbstractGenerator {
 				val Param param = (term.param as Param)
 
 				var name = parseIDLParamName(param.name)
-				var paramSetVar = model.boolVar(name + "Set").eq(1).decompose
+				var BoolVar paramSet = getVariable(name + "Set", BoolVar).asBoolVar
+				var paramSetVar = model.arithm(paramSet, "=", 1)
 				var Constraint paramVar = null
 				
 				if (isParamValueRelation(param)) {
 					if (param.booleanValue !== null) {
-						paramVar = model.boolVar(name).eq(Boolean.parseBoolean(param.booleanValue) ? 1 : 0).decompose
+						var BoolVar boolVar = getVariable(name, BoolVar).asBoolVar
+						paramVar = model.arithm(boolVar, "=", Boolean.parseBoolean(param.booleanValue) ? 1 : 0)
 					} else if (param.doubleValue !== null) {
-						var IntVar intVar = model.intVar(name, MIN_INTEGER, MAX_INTEGER)
-						paramVar = model.arithm(intVar, param.relationalOp, Integer.parseInt(parseDouble(param.doubleValue))).reify.eq(1).decompose
+						var IntVar intVar = getVariable(name, IntVar).asIntVar
+						paramVar = model.arithm(intVar, param.relationalOp, Integer.parseInt(parseDouble(param.doubleValue)))
 					} else if (param.stringValues.size !== 0) {
-						var IntVar intVar = model.intVar(name, MIN_INTEGER, MAX_INTEGER)
+						var IntVar intVar = getVariable(name, IntVar).asIntVar
 						var List<Constraint> constraints = newArrayList
 						
 						for (string: param.stringValues) {
-							constraints.add(intVar.eq(stringToInt(string)).decompose)
+							constraints.add(model.arithm(intVar, "=", stringToInt(string)))
 						}
-						paramVar = model.or(constraints).reify.eq(1).decompose
+						paramVar = constraints.size > 1 ? model.or(constraints) : constraints.get(0)
 					} else if (param.patternString !== null) {
 						// TODO: Implement CSP mapping (none for now)
 					}
@@ -211,11 +230,11 @@ class IDLGenerator extends AbstractGenerator {
 	def private Constraint writeRelationalDependency(RelationalDependency dep, boolean alone) {
 		var nameParam1 = parseIDLParamName(dep.param1.name)
 		var nameParam2 = parseIDLParamName(dep.param2.name)
-		var param1SetVar = model.boolVar(nameParam1 + "Set").eq(1).boolVar
-		var param2SetVar = model.boolVar(nameParam2 + "Set").eq(1).boolVar
+		var param1SetVar = getVariable(nameParam1 + "Set", BoolVar).asBoolVar
+		var param2SetVar = getVariable(nameParam2 + "Set", BoolVar).asBoolVar
 		var ifParamsSet = model.and(param1SetVar, param2SetVar)
-		var IntVar intVar1 = model.intVar(nameParam1, MIN_INTEGER, MAX_INTEGER)
-		var IntVar intVar2 = model.intVar(nameParam2, MIN_INTEGER, MAX_INTEGER)
+		var IntVar intVar1 = getVariable(nameParam1, IntVar).asIntVar
+		var IntVar intVar2 = getVariable(nameParam2, IntVar).asIntVar
 		var relationalOperation = model.arithm(intVar1, dep.relationalOp, intVar2)
 		if (alone){
 			model.ifThen(ifParamsSet, relationalOperation)
@@ -228,7 +247,7 @@ class IDLGenerator extends AbstractGenerator {
 	def private Constraint writeArithmeticDependency(ArithmeticDependency dep, boolean alone) {
 		var List<BoolVar> paramsSet = newArrayList
 		for (param: dep.eAllContents.filter(Param).toIterable) {
-			paramsSet.add(model.boolVar(parseIDLParamName(param.name) + "Set").eq(1).boolVar)
+			paramsSet.add(getVariable(parseIDLParamName(param.name) + "Set", BoolVar).asBoolVar)
 		}
 		var constaint = model.and(paramsSet)
 		
@@ -245,10 +264,14 @@ class IDLGenerator extends AbstractGenerator {
 	
 	def private IntVar writeOperation(Operation operation) {
 		if (operation.openingParenthesis === null) {
-			var IntVar intVar = model.intVar(parseIDLParamName(operation.firstParam.name), MIN_INTEGER, MAX_INTEGER)
-			return getArithmOperation(intVar, operation.operationContinuation.arithOp, writeOperationContinuation(operation.operationContinuation))
+			var IntVar intVar = getVariable(parseIDLParamName(operation.firstParam.name), IntVar).asIntVar
+			if(operation.operationContinuation.arithOp!==null){
+				return getArithmOperation(intVar, operation.operationContinuation.arithOp, writeOperationContinuation(operation.operationContinuation))
+			} else{
+				return writeOperationContinuation(operation.operationContinuation)
+			}
 		} else { // Alternative 2 of Operation
-			var intVar = writeOperation(operation.operation)
+			var IntVar intVar = writeOperation(operation.operation)
 			if (operation.operationContinuation !== null) {
 				return getArithmOperation(intVar, operation.operationContinuation.arithOp, writeOperationContinuation(operation.operationContinuation))
 			}
@@ -273,7 +296,7 @@ class IDLGenerator extends AbstractGenerator {
 	def private IntVar writeOperationContinuation(OperationContinuation opCont) {
 		var IntVar intVar = null
 		if (opCont.additionalParams.class == typeof(ParamImpl)) {
-			intVar = model.intVar(parseIDLParamName((opCont.additionalParams as Param).name), MIN_INTEGER, MAX_INTEGER)
+			intVar = getVariable(parseIDLParamName((opCont.additionalParams as Param).name), IntVar).asIntVar
 		} else {
 			intVar = writeOperation(opCont.additionalParams as Operation)
 		}
@@ -285,7 +308,7 @@ class IDLGenerator extends AbstractGenerator {
 		
 		var List<BoolVar> contraintsList = newArrayList
 		for (depElement: dep.predefDepElements) {
-			 contraintsList.add(writePredicate(depElement).reify.eq(1).boolVar)
+			 contraintsList.add(writePredicate(depElement).reify)
 		}
 		
 		switch dep.predefDepType {
