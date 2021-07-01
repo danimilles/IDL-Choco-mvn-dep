@@ -235,7 +235,8 @@ class IDLGenerator extends AbstractGenerator {
 		var ifParamsSet = model.and(param1SetVar, param2SetVar)
 		var IntVar intVar1 = getVariable(nameParam1, IntVar).asIntVar
 		var IntVar intVar2 = getVariable(nameParam2, IntVar).asIntVar
-		var relationalOperation = model.arithm(intVar1, dep.relationalOp, intVar2)
+		var relationalOperation = model.arithm(intVar1, dep.relationalOp.equals("==") ? "=" : dep.relationalOp, intVar2)
+		
 		if (alone){
 			model.ifThen(ifParamsSet, relationalOperation)
 			return null
