@@ -27,14 +27,13 @@ import org.chocosolver.solver.Model
 import org.chocosolver.solver.constraints.Constraint
 import org.chocosolver.solver.variables.BoolVar
 import org.chocosolver.solver.variables.IntVar
+import org.chocosolver.solver.variables.Variable
 import org.eclipse.emf.ecore.resource.Resource
 import org.eclipse.xtext.generator.AbstractGenerator
 import org.eclipse.xtext.generator.IFileSystemAccess2
 import org.eclipse.xtext.generator.IGeneratorContext
 
 import static es.us.isa.idl.generator.ReservedWords.RESERVED_WORDS
-import java.util.ArrayList
-import org.chocosolver.solver.variables.Variable
 
 /**
  * Generates code from your model files on save.
@@ -43,21 +42,26 @@ import org.chocosolver.solver.variables.Variable
  */
 class IDLGenerator extends AbstractGenerator {
 
-	val MIN_INTEGER = -10000
-	val MAX_INTEGER = 10000
+	val MIN_INTEGER = -1000
+	val MAX_INTEGER = 1000
 
-	var Integer stringToIntCounter
 	var Map<String, Integer> stringIntMapping = new HashMap
-	var Model model = new Model("problem");
+	var Model model = new Model
 	var Map<String, Variable> map = new HashMap
+
+	new() {
+	}
+	
+	new(Map<String, Integer> map, Model model) {
+		this.stringIntMapping = map
+		this.model = model
+	}
 
 	override void doGenerate(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
 		throw new Exception("Unsupported operation")
 	}
 	
-	def Response doGenerateChocoModel(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
-		stringIntMapping.clear
-		stringToIntCounter = 0
+	def Response doGenerateChocoModel(Resource resource) {
 		
 		for (dependency: resource.allContents.filter(Dependency).toIterable) {
 			var Constraint cons = null
@@ -106,8 +110,9 @@ class IDLGenerator extends AbstractGenerator {
 		if (intMapping !== null) {
 			return intMapping
 		} else {
-			stringIntMapping.put(stringValue, stringToIntCounter)
-			return stringToIntCounter++
+			var int size = stringIntMapping.entrySet.size
+			stringIntMapping.put(stringValue, size)
+			return size
 		}
 	}
 	
@@ -276,6 +281,7 @@ class IDLGenerator extends AbstractGenerator {
 			if (operation.operationContinuation !== null) {
 				return getArithmOperation(intVar, operation.operationContinuation.arithOp, writeOperationContinuation(operation.operationContinuation))
 			}
+			return intVar
 		}
 	}
 	
