@@ -181,7 +181,7 @@ class IDLGenerator extends AbstractGenerator {
 						paramVar = model.arithm(boolVar, "=", Boolean.parseBoolean(param.booleanValue) ? 1 : 0)
 					} else if (param.doubleValue !== null) {
 						var IntVar intVar = getVariable(name, IntVar).asIntVar
-						paramVar = model.arithm(intVar, param.relationalOp, Integer.parseInt(parseDouble(param.doubleValue)))
+						paramVar = model.arithm(intVar, param.relationalOp.equals("==")? "=" : param.relationalOp, Integer.parseInt(parseDouble(param.doubleValue)))
 					} else if (param.stringValues.size !== 0) {
 						var IntVar intVar = getVariable(name, IntVar).asIntVar
 						var List<Constraint> constraints = newArrayList
