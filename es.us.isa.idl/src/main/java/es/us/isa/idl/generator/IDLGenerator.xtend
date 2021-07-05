@@ -47,14 +47,15 @@ class IDLGenerator extends AbstractGenerator {
 
 	var Map<String, Integer> stringIntMapping = new HashMap
 	var Model model = new Model
-	var Map<String, Variable> map = new HashMap
+	var Map<String, Variable> variablesMap = new HashMap
 
 	new() {
 	}
 	
-	new(Map<String, Integer> map, Model model) {
-		this.stringIntMapping = map
+	new(Map<String, Integer> stringIntMapping, Map<String, Variable> variableMap, Model model) {
+		this.stringIntMapping = stringIntMapping
 		this.model = model
+		this.variablesMap = variableMap;
 	}
 
 	override void doGenerate(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
@@ -117,16 +118,16 @@ class IDLGenerator extends AbstractGenerator {
 	}
 	
 	def private getVariable(String name, Class<? extends Variable> type, int... domain) {
-		var paramVar = map.get(name)
+		var paramVar = variablesMap.get(name)
 		if (paramVar !== null) {
 			return paramVar
 		} else {
 			if(type == typeof(BoolVar)){
-				map.put(name, model.boolVar(name))
+				variablesMap.put(name, model.boolVar(name))
 			} else if (type == typeof(IntVar)){
-				map.put(name, model.intVar(name, domain.size == 2 ? domain.get(0) : MIN_INTEGER, domain.size==2 ? domain.get(1) : MAX_INTEGER))
+				variablesMap.put(name, model.intVar(name, domain.size == 2 ? domain.get(0) : MIN_INTEGER, domain.size==2 ? domain.get(1) : MAX_INTEGER))
 			}
-			return map.get(name)
+			return variablesMap.get(name)
 		}
 	}
 	
