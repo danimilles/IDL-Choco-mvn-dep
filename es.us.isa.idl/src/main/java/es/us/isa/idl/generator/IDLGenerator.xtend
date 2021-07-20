@@ -101,8 +101,11 @@ class IDLGenerator extends AbstractGenerator {
 	 */
 	def private String parseIDLParamName(String paramName) {
 		var String parsedParamName = paramName.replaceAll("^\\[|\\]$", "").replaceAll("[\\.\\-\\/\\:\\[\\]]", "_")
-		if (RESERVED_WORDS.contains(parsedParamName))
+		parsedParamName = parsedParamName.lastIndexOf("_") == parsedParamName.length - 1 ? parsedParamName.substring(0,
+			parsedParamName.length - 1) : parsedParamName
+		if (RESERVED_WORDS.contains(parsedParamName)) {
 			parsedParamName += "_R"
+		}
 		return parsedParamName
 	}
 
