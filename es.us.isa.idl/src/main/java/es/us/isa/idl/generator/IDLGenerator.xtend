@@ -34,6 +34,7 @@ import org.eclipse.xtext.generator.IFileSystemAccess2
 import org.eclipse.xtext.generator.IGeneratorContext
 
 import static es.us.isa.idl.generator.ReservedWords.RESERVED_WORDS
+import java.util.ArrayList
 
 /**
  * Generates code from your model files on save.
@@ -62,12 +63,14 @@ class IDLGenerator extends AbstractGenerator {
 		throw new Exception("Unsupported operation")
 	}
 	
-	def Response doGenerateChocoModel(Resource resource) {
+	def Response doGenerateChocoModel(Resource resource, boolean valid, List<Constraint> requiredParams) {
+		
+		var List<Constraint> constraints = new ArrayList(requiredParams)
 		
 		for (dependency: resource.allContents.filter(Dependency).toIterable) {
 			var Constraint cons = null
 			if (dependency.dep.class == typeof(ConditionalDependencyImpl)) {
-				writeConditionalDependency(dependency.dep as ConditionalDependency)
+				cons = writeConditionalDependency(dependency.dep as ConditionalDependency)
 			} else if (dependency.dep.class == typeof(RelationalDependencyImpl)) {
 				cons = writeRelationalDependency(dependency.dep as RelationalDependency, true)
 			} else if (dependency.dep.class == typeof(ArithmeticDependencyImpl)) {
@@ -79,9 +82,17 @@ class IDLGenerator extends AbstractGenerator {
 					"arithmetic, a relational or a predefined one")
 			}
 			
-			if(cons !== null){
+			if(cons !== null && valid) {
 				model.post(cons)
+			} else {
+				constraints.add(model.not(cons))
 			}
+		}
+		
+		if (!constraints.isEmpty) {
+			var Constraint[] opposites = newArrayOfSize(constraints.size)
+			constraints.toArray(opposites)
+			model.or(opposites).post
 		}
 		
 		
@@ -230,10 +241,10 @@ class IDLGenerator extends AbstractGenerator {
 		}
 	}
 	
-	def private void writeConditionalDependency(ConditionalDependency dep) {
+	def private Constraint writeConditionalDependency(ConditionalDependency dep) {
 		var condition = writePredicate(dep.condition)
-		var consecuence = writePredicate(dep.consequence)
-		model.ifThen(condition, consecuence);
+		var consequence = writePredicate(dep.consequence)
+		return createIfThenConstraint(condition, consequence)
 	}
 
 	def private Constraint writeRelationalDependency(RelationalDependency dep, boolean alone) {
@@ -247,8 +258,7 @@ class IDLGenerator extends AbstractGenerator {
 		var relationalOperation = model.arithm(intVar1, dep.relationalOp.equals("==") ? "=" : dep.relationalOp, intVar2)
 		
 		if (alone){
-			model.ifThen(ifParamsSet, relationalOperation)
-			return null
+			return createIfThenConstraint(ifParamsSet, relationalOperation)
 		} else {
 			return model.and(ifParamsSet, relationalOperation)
 		}
@@ -265,8 +275,7 @@ class IDLGenerator extends AbstractGenerator {
 		var continuation = model.arithm(intVar, dep.relationalOp, Integer.parseInt(parseDouble(dep.result)))
 		
 		if (alone) {
-			model.ifThen(constaint, continuation)
-			return null 
+			return createIfThenConstraint(constaint, continuation)
 		} else {
 			return model.and(constaint, continuation)
 		}
@@ -340,6 +349,10 @@ class IDLGenerator extends AbstractGenerator {
 			cons = model.not(cons)
 		} 
 		return cons		
+	}
+	
+	def private Constraint createIfThenConstraint(Constraint condition, Constraint consequence) {
+		return model.arithm(condition.reify, "<=", consequence.reify)
 	}
 		
 }
