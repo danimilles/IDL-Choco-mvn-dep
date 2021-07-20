@@ -325,7 +325,7 @@ class IDLGenerator extends AbstractGenerator {
 			} case "OnlyOne": {
 				cons = model.sum(contraintsList, "=", 1)
 			} case "AllOrNone": {
-				cons = model.allEqual(contraintsList)
+				cons = model.or(model.sum(contraintsList, "=", contraintsList.size), model.sum(contraintsList, "=", 0))
 			} case "ZeroOrOne": {
 				cons = model.or(model.sum(contraintsList, "=", 1), model.sum(contraintsList, "=", 0))
 			} default:
