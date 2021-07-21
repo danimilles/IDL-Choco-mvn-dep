@@ -84,7 +84,7 @@ class IDLGenerator extends AbstractGenerator {
 			
 			if(cons !== null && valid) {
 				model.post(cons)
-			} else {
+			} else if (cons !== null && !valid) {
 				constraints.add(model.not(cons))
 			}
 		}
