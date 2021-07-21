@@ -64,8 +64,10 @@ class IDLGenerator extends AbstractGenerator {
 	}
 	
 	def Response doGenerateChocoModel(Resource resource, boolean valid, List<Constraint> requiredParams) {
-		
-		var List<Constraint> constraints = new ArrayList(requiredParams)
+		var List<Constraint> constraints = new ArrayList();
+		if (requiredParams !== null){
+			constraints = new ArrayList(requiredParams)
+		}
 		
 		for (dependency: resource.allContents.filter(Dependency).toIterable) {
 			var Constraint cons = null
@@ -96,7 +98,7 @@ class IDLGenerator extends AbstractGenerator {
 		}
 		
 		
-        return new Response(stringIntMapping, model)
+        return new Response(stringIntMapping, model, variablesMap)
 	}
 	
 	/**
