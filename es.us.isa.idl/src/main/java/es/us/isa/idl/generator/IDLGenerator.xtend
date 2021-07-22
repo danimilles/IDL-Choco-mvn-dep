@@ -3,37 +3,38 @@
  */
 package es.us.isa.idl.generator
 
+import es.us.isa.idl.idl.ArithmeticDependency
+import es.us.isa.idl.idl.ConditionalDependency
+import es.us.isa.idl.idl.Dependency
+import es.us.isa.idl.idl.GeneralClause
+import es.us.isa.idl.idl.GeneralPredefinedDependency
+import es.us.isa.idl.idl.GeneralPredicate
+import es.us.isa.idl.idl.GeneralTerm
+import es.us.isa.idl.idl.Operation
+import es.us.isa.idl.idl.OperationContinuation
+import es.us.isa.idl.idl.Param
+import es.us.isa.idl.idl.RelationalDependency
+import es.us.isa.idl.idl.impl.ArithmeticDependencyImpl
+import es.us.isa.idl.idl.impl.ConditionalDependencyImpl
+import es.us.isa.idl.idl.impl.GeneralPredefinedDependencyImpl
+import es.us.isa.idl.idl.impl.GeneralTermImpl
+import es.us.isa.idl.idl.impl.ParamImpl
+import es.us.isa.idl.idl.impl.RelationalDependencyImpl
+import java.util.HashMap
+import java.util.List
+import java.util.Map
+import org.chocosolver.solver.Model
+import org.chocosolver.solver.constraints.Constraint
+import org.chocosolver.solver.variables.BoolVar
+import org.chocosolver.solver.variables.IntVar
+import org.chocosolver.solver.variables.Variable
 import org.eclipse.emf.ecore.resource.Resource
 import org.eclipse.xtext.generator.AbstractGenerator
 import org.eclipse.xtext.generator.IFileSystemAccess2
 import org.eclipse.xtext.generator.IGeneratorContext
 
-import java.io.File
-import java.util.Map
-import java.util.HashMap
-import java.io.BufferedWriter
-import java.io.FileWriter
-import com.fasterxml.jackson.databind.ObjectMapper
-
-import static es.us.isa.idl.generator.ReservedWords.RESERVED_WORDS;
-
-import es.us.isa.idl.idl.GeneralClause
-import es.us.isa.idl.idl.GeneralPredefinedDependency
-import es.us.isa.idl.idl.Dependency;
-import es.us.isa.idl.idl.ConditionalDependency;
-import es.us.isa.idl.idl.impl.ConditionalDependencyImpl
-import es.us.isa.idl.idl.impl.GeneralPredefinedDependencyImpl
-import es.us.isa.idl.idl.impl.ArithmeticDependencyImpl
-import es.us.isa.idl.idl.ArithmeticDependency
-import es.us.isa.idl.idl.Operation
-import es.us.isa.idl.idl.Param
-import es.us.isa.idl.idl.impl.ParamImpl
-import es.us.isa.idl.idl.OperationContinuation
-import es.us.isa.idl.idl.impl.RelationalDependencyImpl
-import es.us.isa.idl.idl.RelationalDependency
-import es.us.isa.idl.idl.impl.GeneralTermImpl
-import es.us.isa.idl.idl.GeneralTerm
-import es.us.isa.idl.idl.GeneralPredicate
+import static es.us.isa.idl.generator.ReservedWords.RESERVED_WORDS
+import java.util.ArrayList
 
 /**
  * Generates code from your model files on save.
@@ -42,91 +43,82 @@ import es.us.isa.idl.idl.GeneralPredicate
  */
 class IDLGenerator extends AbstractGenerator {
 
-	val String constraintsFileName = "base_constraints.mzn"
-	val String stringIntMappingFileName = "string_int_mapping.json"
-	var String csp
-	var String fullCsp
-	var Integer stringToIntCounter
+	val MIN_INTEGER = -1000
+	val MAX_INTEGER = 1000
+
 	var Map<String, Integer> stringIntMapping = new HashMap
-	
-	var String folderPath = "./idl_aux_files"
-	
-	def String getFolderPath() {
-		return this.folderPath
+	var Model model = new Model
+	var Map<String, Variable> variablesMap = new HashMap
+
+	new() {
 	}
 	
-	def void setFolderPath(String folderPath) {
-		this.folderPath = folderPath
+	new(Map<String, Integer> stringIntMapping, Map<String, Variable> variableMap, Model model) {
+		this.stringIntMapping = stringIntMapping
+		this.model = model
+		this.variablesMap = variableMap;
 	}
 
 	override void doGenerate(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
+		throw new Exception("Unsupported operation")
+	}
+	
+	def Response doGenerateChocoModel(Resource resource, boolean valid, List<Constraint> requiredParams) {
+		var List<Constraint> constraints = new ArrayList();
+		if (requiredParams !== null){
+			constraints = new ArrayList(requiredParams)
+		}
 		
-		stringIntMapping.clear
-		stringToIntCounter = 0
-		
-		fullCsp = "constraint ("
 		for (dependency: resource.allContents.filter(Dependency).toIterable) {
-			csp = "("
+			var Constraint cons = null
 			if (dependency.dep.class == typeof(ConditionalDependencyImpl)) {
-				writeConditionalDependency(dependency.dep as ConditionalDependency)
+				cons = writeConditionalDependency(dependency.dep as ConditionalDependency)
 			} else if (dependency.dep.class == typeof(RelationalDependencyImpl)) {
-				writeRelationalDependency(dependency.dep as RelationalDependency, true)
+				cons = writeRelationalDependency(dependency.dep as RelationalDependency, true)
 			} else if (dependency.dep.class == typeof(ArithmeticDependencyImpl)) {
-				writeArithmeticDependency(dependency.dep as ArithmeticDependency, true)
+				cons = writeArithmeticDependency(dependency.dep as ArithmeticDependency, true)
 			} else if (dependency.dep.class == typeof(GeneralPredefinedDependencyImpl)) {
-				writePredefinedDependency(dependency.dep as GeneralPredefinedDependency)
+				cons = writePredefinedDependency(dependency.dep as GeneralPredefinedDependency)
 			} else {
 				throw new Exception("The dependency must be a conditional, an " + 
 					"arithmetic, a relational or a predefined one")
 			}
-			csp += ")\n/\\\n"
 			
-			fullCsp += csp
-			
+			if(cons !== null && valid) {
+				model.post(cons)
+			} else if (cons !== null && !valid) {
+				constraints.add(model.not(cons))
+			}
 		}
-		fullCsp = fullCsp.substring(0, fullCsp.length-4)
-		fullCsp += ");"
-		if (fullCsp.contains("constrai);"))
-			fullCsp = ""
 		
-		// Export constraints to IDL file
-		var file = new File(folderPath + "/" + constraintsFileName)
-		file.delete
-		if (!file.exists) {
-		  file.parentFile.mkdirs
-		  file.createNewFile
+		if (!constraints.isEmpty) {
+			var Constraint[] opposites = newArrayOfSize(constraints.size)
+			constraints.toArray(opposites)
+			model.or(opposites).post
 		}
-		var BufferedWriter out = new BufferedWriter(new FileWriter(file, false))
 		
-		out.append(fullCsp)
-		out.flush
-		out.close
 		
-		// Export string-int mapping to JSON
-		var mappingFile = new File(folderPath + "/" + stringIntMappingFileName)
-		mappingFile.delete
-		if (!mappingFile.exists) {
-		  mappingFile.parentFile.mkdirs
-		  mappingFile.createNewFile
-		}
-        var BufferedWriter mappingOut = new BufferedWriter(new FileWriter(mappingFile, false))
-        
-		var ObjectMapper mapper = new ObjectMapper
-		var String json = mapper.writerWithDefaultPrettyPrinter.writeValueAsString(stringIntMapping)
-		
-        mappingOut.append(json)
-        mappingOut.flush
-        mappingOut.close
+        return new Response(stringIntMapping, model, variablesMap)
 	}
 	
+	/**
+	 * Surround double with brackets if it's negative, and remove decimals (MiniZinc does not support floats)
+	 */
+	def private String parseDouble(String doubleValue) {
+		val doubleWithoutDec = doubleValue.replaceAll("\\.\\d+", "")
+		return doubleWithoutDec
+	}
 	
 	/**
 	 * Remove and replace special characters from paramName
 	 */
 	def private String parseIDLParamName(String paramName) {
 		var String parsedParamName = paramName.replaceAll("^\\[|\\]$", "").replaceAll("[\\.\\-\\/\\:\\[\\]]", "_")
-		if (RESERVED_WORDS.contains(parsedParamName))
+		parsedParamName = parsedParamName.lastIndexOf("_") == parsedParamName.length - 1 ? parsedParamName.substring(0,
+			parsedParamName.length - 1) : parsedParamName
+		if (RESERVED_WORDS.contains(parsedParamName)) {
 			parsedParamName += "_R"
+		}
 		return parsedParamName
 	}
 
@@ -135,20 +127,24 @@ class IDLGenerator extends AbstractGenerator {
 		if (intMapping !== null) {
 			return intMapping
 		} else {
-			stringIntMapping.put(stringValue, stringToIntCounter)
-			return stringToIntCounter++
+			var int size = stringIntMapping.entrySet.size
+			stringIntMapping.put(stringValue, size)
+			return size
 		}
 	}
 	
-	
-	/**
-	 * Surround double with brackets if it's negative, and remove decimals (MiniZinc does not support floats)
-	 */
-	def private String parseDouble(String doubleValue) {
-		val doubleWithoutDec = doubleValue.replaceAll("\\.\\d+", "")
-		if (doubleWithoutDec.contains('-'))
-			return ('(' + doubleWithoutDec + ')')
-		return doubleWithoutDec
+	def private getVariable(String name, Class<? extends Variable> type, int... domain) {
+		var paramVar = variablesMap.get(name)
+		if (paramVar !== null) {
+			return paramVar
+		} else {
+			if(type == typeof(BoolVar)){
+				variablesMap.put(name, model.boolVar(name))
+			} else if (type == typeof(IntVar)){
+				variablesMap.put(name, model.intVar(name, domain.size == 2 ? domain.get(0) : MIN_INTEGER, domain.size==2 ? domain.get(1) : MAX_INTEGER))
+			}
+			return variablesMap.get(name)
+		}
 	}
 	
 	/**
@@ -158,31 +154,31 @@ class IDLGenerator extends AbstractGenerator {
 		return param.stringValues.size !== 0 || param.patternString !== null || param.booleanValue !== null || param.doubleValue !== null
 	}
 	
-	def private void writePredicate(GeneralPredicate predicate) {
-		writeClause(predicate.firstClause)
+	def private Constraint writePredicate(GeneralPredicate predicate) {
+		var Constraint constraint = writeClause(predicate.firstClause)
 		
 		if (predicate.clauseContinuation !== null) {
 			// Solve second element, which is a clause continuation containing a predicate
 			if (predicate.clauseContinuation.logicalOp == "AND") {
-				csp += " /\\ "
+				constraint = model.and(constraint, writePredicate(predicate.clauseContinuation.additionalElements))
 			} else if (predicate.clauseContinuation.logicalOp == "OR") {
-				csp += " \\/ "
+				constraint = model.or(constraint, writePredicate(predicate.clauseContinuation.additionalElements))
 			} else {
 				throw new Exception("The logical operator can only be AND or OR")
 			}
-			writePredicate(predicate.clauseContinuation.additionalElements)
 		}
+		return constraint		
 	}
 	
-	def private void writeClause(GeneralClause clause) {
+	def private Constraint writeClause(GeneralClause clause) {
+		var Constraint constraint = null
+		var Constraint temp = null
+		
 		if (clause.predicate !== null) {
-			if (clause.not !== null)
-				csp += "(not "
-			csp += "("
-			writePredicate(clause.predicate)
-			csp += ")"
-			if (clause.not !== null)
-				csp += ")"
+			constraint = writePredicate(clause.predicate)
+			if (clause.not !== null){
+				constraint = model.not(constraint)		
+			}
 		}
 		
 		// Solve firstElement, which can be a term, arithmetic dep, relational dep or predefined dep
@@ -190,182 +186,176 @@ class IDLGenerator extends AbstractGenerator {
 			if (clause.firstElement.class == typeof(GeneralTermImpl)) { // param or param assignment
 				val GeneralTerm term = (clause.firstElement as GeneralTerm)
 				val Param param = (term.param as Param)
-				
-				if (term.not !== null)
-					csp += "(not "
-				csp += "("
-	
-				csp += parseIDLParamName(param.name) + "Set==1"
+
+				var name = parseIDLParamName(param.name)
+				var BoolVar paramSet = getVariable(name + "Set", BoolVar).asBoolVar
+				var paramSetVar = model.arithm(paramSet, "=", 1)
+				var Constraint paramVar = null
 				
 				if (isParamValueRelation(param)) {
-					csp += " /\\ "
 					if (param.booleanValue !== null) {
-						csp += parseIDLParamName(param.name) + "==" + param.booleanValue
+						var BoolVar boolVar = getVariable(name, BoolVar).asBoolVar
+						paramVar = model.arithm(boolVar, "=", Boolean.parseBoolean(param.booleanValue) ? 1 : 0)
 					} else if (param.doubleValue !== null) {
-						csp += parseIDLParamName(param.name) + param.relationalOp + parseDouble(param.doubleValue)
+						var IntVar intVar = getVariable(name, IntVar).asIntVar
+						paramVar = model.arithm(intVar, param.relationalOp.equals("==")? "=" : param.relationalOp, Integer.parseInt(parseDouble(param.doubleValue)))
 					} else if (param.stringValues.size !== 0) {
-						csp += "("
+						var IntVar intVar = getVariable(name, IntVar).asIntVar
+						var List<Constraint> constraints = newArrayList
+						
 						for (string: param.stringValues) {
-							csp += parseIDLParamName(param.name) + "==" + stringToInt(string) + " \\/ "
+							constraints.add(model.arithm(intVar, "=", stringToInt(string)))
 						}
-						csp = csp.substring(0, csp.length-4) // Trim last " \\/ "
-						csp += ")"
+						paramVar = constraints.size > 1 ? model.or(constraints) : constraints.get(0)
 					} else if (param.patternString !== null) {
 						// TODO: Implement CSP mapping (none for now)
-						csp += "true"
 					}
 				}
-				csp += ")"
-				if (term.not !== null)
-					csp += ")"
+				
+				if(paramVar !== null){
+					temp = model.and(paramSetVar, paramVar)
+				} else{
+					temp = paramSetVar
+				}
+				if (term.not !== null){
+					temp = model.not(temp)
+				}
+				
+			
 			} else if(clause.firstElement.class == typeof(RelationalDependencyImpl)) {
-				writeRelationalDependency(clause.firstElement as RelationalDependency, false)
+				temp = writeRelationalDependency(clause.firstElement as RelationalDependency, false)
 			} else if(clause.firstElement.class == typeof(ArithmeticDependencyImpl)) {
-				writeArithmeticDependency(clause.firstElement as ArithmeticDependency, false)
+				temp = writeArithmeticDependency(clause.firstElement as ArithmeticDependency, false)
 			} else if(clause.firstElement.class == typeof(GeneralPredefinedDependencyImpl)) {
-				writePredefinedDependency(clause.firstElement as GeneralPredefinedDependency)
+				temp = writePredefinedDependency(clause.firstElement as GeneralPredefinedDependency)
 			} else {
 				throw new Exception("The first element of a clause must be a term, an " + 
 					"arithmetic dependency, a relational dependency or a predefined dependency")
 			}
 		}
+		
+		if(constraint !== null && temp !== null) {
+			constraint = model.and(constraint, temp)
+		} else if (temp !== null) {
+			return temp
+		} else{
+			return constraint
+		}
 	}
 	
-	def private void writeConditionalDependency(ConditionalDependency dep) {
-		csp += "("
-		writePredicate(dep.condition)
-		csp += ") -> ("
-		writePredicate(dep.consequence)
-		csp += ")"
+	def private Constraint writeConditionalDependency(ConditionalDependency dep) {
+		var condition = writePredicate(dep.condition)
+		var consequence = writePredicate(dep.consequence)
+		return createIfThenConstraint(condition, consequence)
 	}
 
-	def private void writeRelationalDependency(RelationalDependency dep, boolean alone) {
-		if (alone)
-			csp += "((" + parseIDLParamName(dep.param1.name) + "Set==1 /\\ " + parseIDLParamName(dep.param2.name) + "Set==1) -> (" +
-					parseIDLParamName(dep.param1.name) + dep.relationalOp + parseIDLParamName(dep.param2.name) + "))"
-		else
-			csp += "(" + parseIDLParamName(dep.param1.name) + "Set==1 /\\ " + parseIDLParamName(dep.param2.name) + "Set==1 /\\ " +
-					parseIDLParamName(dep.param1.name) + dep.relationalOp + parseIDLParamName(dep.param2.name) + ")"
-	}
-	
-	def private void writeArithmeticDependency(ArithmeticDependency dep, boolean alone) {
-		csp += "(("
-		for (param: dep.eAllContents.filter(Param).toIterable) {
-			csp += parseIDLParamName(param.name) + "Set==1 /\\ "
-		}
-		if (alone) {
-			csp = csp.substring(0, csp.length-4) // Trim last " /\\ "
-			csp += ") -> ("
-		}
-		writeOperation(dep.operation)
-		csp += dep.relationalOp
-		csp += parseDouble(dep.result)
-		csp += "))"
-	}
-	
-	def private void writeOperation(Operation operation) {
-		if (operation.openingParenthesis === null) { // Alternative 1 of Operation
-			csp += operation.firstParam.name
-			writeOperationContinuation(operation.operationContinuation)
-			
-		} else { // Alternative 2 of Operation
-			csp += "("
-			writeOperation(operation.operation)
-			csp += ")"
-			if (operation.operationContinuation !== null) {
-				writeOperationContinuation(operation.operationContinuation)
-			}
-			
-		}
-	}
-	
-	def private void writeOperationContinuation(OperationContinuation opCont) {
-		csp += opCont.arithOp
-		if (opCont.additionalParams.class == typeof(ParamImpl)) {
-			csp += (opCont.additionalParams as Param).name
+	def private Constraint writeRelationalDependency(RelationalDependency dep, boolean alone) {
+		var nameParam1 = parseIDLParamName(dep.param1.name)
+		var nameParam2 = parseIDLParamName(dep.param2.name)
+		var param1SetVar = getVariable(nameParam1 + "Set", BoolVar).asBoolVar
+		var param2SetVar = getVariable(nameParam2 + "Set", BoolVar).asBoolVar
+		var ifParamsSet = model.and(param1SetVar, param2SetVar)
+		var IntVar intVar1 = getVariable(nameParam1, IntVar).asIntVar
+		var IntVar intVar2 = getVariable(nameParam2, IntVar).asIntVar
+		var relationalOperation = model.arithm(intVar1, dep.relationalOp.equals("==") ? "=" : dep.relationalOp, intVar2)
+		
+		if (alone){
+			return createIfThenConstraint(ifParamsSet, relationalOperation)
 		} else {
-			writeOperation(opCont.additionalParams as Operation)
+			return model.and(ifParamsSet, relationalOperation)
 		}
 	}
 	
-	def private void writePredefinedDependency(GeneralPredefinedDependency dep) {		
-		if (dep.not !== null)
-			csp += "(not "
-		csp += "("
+	def private Constraint writeArithmeticDependency(ArithmeticDependency dep, boolean alone) {
+		var List<BoolVar> paramsSet = newArrayList
+		for (param: dep.eAllContents.filter(Param).toIterable) {
+			paramsSet.add(getVariable(parseIDLParamName(param.name) + "Set", BoolVar).asBoolVar)
+		}
+		var constaint = model.and(paramsSet)
 		
+		var IntVar intVar = writeOperation(dep.operation)
+		var continuation = model.arithm(intVar, dep.relationalOp, Integer.parseInt(parseDouble(dep.result)))
+		
+		if (alone) {
+			return createIfThenConstraint(constaint, continuation)
+		} else {
+			return model.and(constaint, continuation)
+		}
+	}
+	
+	def private IntVar writeOperation(Operation operation) {
+		if (operation.openingParenthesis === null) {
+			var IntVar intVar = getVariable(parseIDLParamName(operation.firstParam.name), IntVar).asIntVar
+			if(operation.operationContinuation.arithOp!==null){
+				return getArithmOperation(intVar, operation.operationContinuation.arithOp, writeOperationContinuation(operation.operationContinuation))
+			} else{
+				return writeOperationContinuation(operation.operationContinuation)
+			}
+		} else { // Alternative 2 of Operation
+			var IntVar intVar = writeOperation(operation.operation)
+			if (operation.operationContinuation !== null) {
+				return getArithmOperation(intVar, operation.operationContinuation.arithOp, writeOperationContinuation(operation.operationContinuation))
+			}
+			return intVar
+		}
+	}
+	
+	def private IntVar getArithmOperation(IntVar intVar1, String arithmOp, IntVar intVar2){
+		switch (arithmOp) {
+			case "+":
+				return intVar1.add(intVar2).intVar
+			case "-":
+				return intVar1.sub(intVar2).intVar
+			case "*":
+				return intVar1.mul(intVar2).intVar
+			case "/":
+				return intVar1.div(intVar2).intVar
+			default:
+				throw new Exception("Arithmetic operation not supported: " + arithmOp)
+		}
+	}
+	
+	def private IntVar writeOperationContinuation(OperationContinuation opCont) {
+		var IntVar intVar = null
+		if (opCont.additionalParams.class == typeof(ParamImpl)) {
+			intVar = getVariable(parseIDLParamName((opCont.additionalParams as Param).name), IntVar).asIntVar
+		} else {
+			intVar = writeOperation(opCont.additionalParams as Operation)
+		}
+		return intVar
+	}
+	
+	def private Constraint writePredefinedDependency(GeneralPredefinedDependency dep) {		
+		var Constraint cons = null
+		
+		var List<BoolVar> contraintsList = newArrayList
 		for (depElement: dep.predefDepElements) {
-			csp += "("
-			switch dep.predefDepType {
-				case "Or": {
-					writePredicate(depElement)
-					csp += ") \\/ "
-				} case "OnlyOne": {
-					writeZeroOrOneOnlyOneElement(depElement, dep.predefDepElements)
-					csp += ") /\\ "
-				} case "AllOrNone": {
-					writeAllOrNoneElement(depElement, dep.predefDepElements)
-					csp += ") /\\ "
-				} case "ZeroOrOne": {
-					writeZeroOrOneOnlyOneElement(depElement, dep.predefDepElements)
-					csp += ") /\\ "
-				} default:
-					throw new Exception("The predefined dependency can only be 'Or', " + 
-						"'OnlyOne', 'AllOrNone' or 'ZeroOrOne'")
-			}
+			 contraintsList.add(writePredicate(depElement).reify)
 		}
-		if (dep.predefDepType.equals("OnlyOne")) { // If dep is OnlyOne, one more clause must be added
-			csp += "("
-			for (depElement: dep.predefDepElements) {
-				csp += "("
-				writePredicate(depElement)
-				csp += ") \\/ "
-			}
-			csp = csp.substring(0, csp.length-4) // Trim last " /\\ " or " \\/ "
-			csp += ")"
-		} else { // Otherwise, last logicalOp must be removed
-			csp = csp.substring(0, csp.length-4) // Trim last " /\\ " or " \\/ "
+		
+		switch dep.predefDepType {
+			case "Or": {
+				cons = model.or(contraintsList)			
+			} case "OnlyOne": {
+				cons = model.sum(contraintsList, "=", 1)
+			} case "AllOrNone": {
+				cons = model.or(model.sum(contraintsList, "=", contraintsList.size), model.sum(contraintsList, "=", 0))
+			} case "ZeroOrOne": {
+				cons = model.or(model.sum(contraintsList, "=", 1), model.sum(contraintsList, "=", 0))
+			} default:
+				throw new Exception("The predefined dependency can only be 'Or', " + 
+					"'OnlyOne', 'AllOrNone' or 'ZeroOrOne'")
 		}
-		csp += ")"
-		if (dep.not !== null)
-			csp += ")"
+
+		if (dep.not !== null){
+			cons = model.not(cons)
+		} 
+		return cons		
+	}
+	
+	def private Constraint createIfThenConstraint(Constraint condition, Constraint consequence) {
+		return model.arithm(condition.reify, "<=", consequence.reify)
 	}
 		
-	def private void writeZeroOrOneOnlyOneElement(GeneralPredicate element, GeneralPredicate[] allElements) {
-		writeZeroOrOneAllOrNoneElement(element, allElements, false, true)
-	}
-	
-	def private void writeAllOrNoneElement(GeneralPredicate element, GeneralPredicate[] allElements) {
-		writeZeroOrOneAllOrNoneElement(element, allElements, false, false)
-		csp += ") /\\ ("
-		writeZeroOrOneAllOrNoneElement(element, allElements, true, true)
-	}
-	
-	def private void writeZeroOrOneAllOrNoneElement(GeneralPredicate element, GeneralPredicate[] allElements, boolean negateElement, boolean negateRemainingElements) {
-		if (negateElement) { // For AllOrNone dependencies
-			csp += "(not ("
-			writePredicate(element)
-			csp += ")) -> ("
-		} else { // For ZeroOrOne, AllOrNone and OnlyOne dependencies
-			csp += "("
-			writePredicate(element)
-			csp += ") -> ("
-		}
-		for (remainingElement: allElements) {
-			if (!remainingElement.equals(element)) { // Include remaining elements in the consequence
-				if (negateRemainingElements) { // For ZeroOrOne dependencies
-					csp += "(not ("
-					writePredicate(remainingElement)
-					csp += ")) /\\ "
-				} else { // For ZeroOrOne, AllOrNone and OnlyOne dependencies
-					csp += "("
-					writePredicate(remainingElement)
-					csp += ") /\\ "
-				}
-			}
-		}
-		csp = csp.substring(0, csp.length-4) // Trim last " /\\ "
-		csp += ")"
-	}
-	
 }
 

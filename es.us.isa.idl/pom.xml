@@ -2,13 +2,13 @@
 	<modelVersion>4.0.0</modelVersion>
 
 	<groupId>es.us.isa</groupId>
-	<artifactId>idl</artifactId>
-	<version>0.0.2-SNAPSHOT</version>
+	<artifactId>idl-choco</artifactId>
+	<version>1.0.0</version>
 	<packaging>jar</packaging>
 
-	<name>IDL</name>
-	<description>A domain-specific language for the specification of APIs inter-parameter dependencies</description>
-	<url>https://github.com/isa-group/IDL</url>
+	<name>IDL-Parser</name>
+	<description>A domain-specific language for the specification of APIs inter-parameter dependencies compatible with ChocoSolver</description>
+	<url>https://github.com/danimilles/IDL-Choco-mvn-dep</url>
 
 	<licenses>
 		<license>
@@ -18,26 +18,32 @@
 	</licenses>
 
 	<scm>
-		<connection>scm:git:https://github.com/isa-group/IDL-mvn-dep.git</connection>
-		<developerConnection>scm:git:https://github.com/isa-group/IDL-mvn-dep.git</developerConnection>
-		<url>https://github.com/isa-group/IDL-mvn-dep/tree/master</url>
+		<connection>scm:git:https://github.com/danimilles/IDL-Choco-mvn-dep.git</connection>
+		<developerConnection>scm:git:https://github.com/danimilles/IDL-Choco-mvn-dep.git</developerConnection>
+		<url>https://github.com/danimilles/IDL-Choco-mvn-dep/tree/master</url>
  	   <tag>HEAD</tag>
   </scm>
 
-	<developers>
-		<developer>
-			<id>Martin-Lopez</id>
-			<name>Alberto Martin-Lopez</name>
-			<email>amarlop@us.es</email>
-			<url>http://personal.us.es/amarlop/</url>
-			<organization>University of Seville</organization>
-			<organizationUrl>http://www.us.es</organizationUrl>
-			<roles>
-				<role>Developer</role>
-			</roles>
-		</developer>
-	</developers>
-
+    <developers>
+        <developer>
+            <id>jfdelarosa</id>
+            <name>José Ramón Fernández de la Rosa</name>
+            <email>jfdelarosa@us.es</email>
+            <organization>University of Seville</organization>
+            <organizationUrl>http://www.us.es</organizationUrl>
+            <roles>
+                <role>Developer</role>
+            </roles>
+        </developer>
+        <developer>
+            <id>danimilles</id>
+            <name>Daniel Sánchez Baleyrón</name>
+            <email>dansanbal@alum.us.es</email>
+            <organization>University of Seville</organization>
+            <organizationUrl>http://www.us.es</organizationUrl>
+        </developer>
+    </developers>
+    
 	<distributionManagement>
 		<snapshotRepository>
 			<id>ossrh</id>
@@ -371,7 +377,11 @@
 			<version>2.1.1</version>
 			<optional>true</optional>
 		</dependency>
-		
+		<dependency>
+            <groupId>org.choco-solver</groupId>
+            <artifactId>choco-solver</artifactId>
+            <version>4.10.6</version>
+        </dependency>
 		<!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-databind -->
 		<dependency>
 		    <groupId>com.fasterxml.jackson.core</groupId>
@@ -379,5 +389,16 @@
 		    <version>2.10.1</version>
 		</dependency>
 		
-	</dependencies>
+		<dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>5.7.1</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <version>5.7.1</version>
+        </dependency>
+    </dependencies>
 </project>
